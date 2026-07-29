@@ -331,6 +331,10 @@
     return state.subtitles.filter(c => c.end <= t && c.end >= t - 45).slice(-8).map(c => c.text);
   }
   async function syncContextIfNeeded() {
+    if (!els.video.src) {
+      els.subtitleOverlay.textContent = "";
+      return;
+    }
     const text = currentSubtitle();
     els.subtitleOverlay.textContent = text;
     if (!state.roomId) return;

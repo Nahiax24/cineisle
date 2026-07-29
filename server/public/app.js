@@ -1,5 +1,9 @@
 (() => {
   const $ = (id) => document.getElementById(id);
+  const POLL_INTERVAL_MS = 2500;
+  const CONTEXT_INTERVAL_MS = 1200;
+  const IDLE_CHECK_INTERVAL_MS = 15000;
+  const IDLE_DISCONNECT_MS = 10 * 60 * 1000;
   const state = {
     serverUrl: "",
     token: "",
@@ -10,6 +14,13 @@
     applyingRemote: false,
     polling: null,
     contextTimer: null,
+    idleTimer: null,
+    networkActive: false,
+    connectionGeneration: 0,
+    manualSleep: false,
+    idleSuspended: false,
+    sleepReason: "",
+    lastActivityAt: Date.now(),
     lastPlaybackSyncAt: 0,
     lastContextAt: 0,
     lastSubtitleText: "",
@@ -22,6 +33,7 @@
   const els = {
     serverUrl: $("serverUrl"), token: $("token"), viewerName: $("viewerName"), assistantName: $("assistantName"),
     joinRoomInput: $("joinRoomInput"), statusLine: $("statusLine"), healthState: $("healthState"), roomTitle: $("roomTitle"), roomBadge: $("roomBadge"),
+    sleepServerBtn: $("sleepServerBtn"),
     video: $("video"), videoFile: $("videoFile"), subtitleFile: $("subtitleFile"), subtitleOverlay: $("subtitleOverlay"), danmakuLayer: $("danmakuLayer"),
     playerState: $("playerState"), chatLog: $("chatLog"), chatInput: $("chatInput"), noteLog: $("noteLog"), noteInput: $("noteInput"),
     quoteInput: $("quoteInput"), cardNoteInput: $("cardNoteInput"), cardTemplate: $("cardTemplate"), cardPreview: $("cardPreview"),
@@ -55,15 +67,16 @@
     return data;
   }
 
-  function saveSettings() {
+  function saveSettings({ silent = false } = {}) {
     state.serverUrl = cleanUrl(els.serverUrl.value) || cleanUrl(location.origin);
     state.token = els.token.value.trim();
     state.name = els.viewerName.value.trim() || "观影人A";
     state.assistantName = els.assistantName.value.trim() || "观影助手";
     localStorage.setItem("cineisle.settings", JSON.stringify({
-      serverUrl: state.serverUrl, token: state.token, name: state.name, assistantName: state.assistantName, roomId: state.roomId
+      serverUrl: state.serverUrl, token: state.token, name: state.name, assistantName: state.assistantName,
+      roomId: state.roomId, manualSleep: state.manualSleep
     }));
-    setStatus("设置已保存。");
+    if (!silent) setStatus("设置已保存。");
   }
   function loadSettings() {
     let s = {};
@@ -73,6 +86,7 @@
     state.name = s.name || "观影人A";
     state.assistantName = s.assistantName || "观影助手";
     state.roomId = roomCode(s.roomId || "");
+    state.manualSleep = Boolean(s.manualSleep);
     els.serverUrl.value = state.serverUrl;
     els.token.value = state.token;
     els.viewerName.value = state.name;
@@ -80,6 +94,120 @@
     els.joinRoomInput.value = state.roomId;
     try { state.hall = JSON.parse(localStorage.getItem("cineisle.hall") || "[]"); } catch { state.hall = []; }
     renderHall();
+  }
+
+  function clearConnectionTimers() {
+    if (state.polling) clearInterval(state.polling);
+    if (state.contextTimer) clearInterval(state.contextTimer);
+    if (state.idleTimer) clearInterval(state.idleTimer);
+    state.polling = null;
+    state.contextTimer = null;
+    state.idleTimer = null;
+  }
+  function updateConnectionUi() {
+    const roomLabel = state.roomId ? `ROOM ${state.roomId}` : "ROOM ----";
+    els.sleepServerBtn.disabled = !state.roomId;
+    if (!state.roomId) {
+      els.sleepServerBtn.textContent = "暂无活动房间";
+      els.sleepServerBtn.classList.remove("sleeping");
+      els.roomBadge.textContent = roomLabel;
+      return;
+    }
+    if (state.networkActive) {
+      els.sleepServerBtn.textContent = "让服务器休眠";
+      els.sleepServerBtn.classList.remove("sleeping");
+      els.healthState.textContent = "房间在线";
+      els.roomBadge.textContent = roomLabel;
+      return;
+    }
+    els.sleepServerBtn.textContent = "唤醒房间";
+    els.sleepServerBtn.classList.add("sleeping");
+    els.healthState.textContent = state.sleepReason === "hidden" ? "后台暂停" : "连接已休眠";
+    els.roomBadge.textContent = `${roomLabel} · 休眠`;
+  }
+  function stopRoomConnection(reason) {
+    state.connectionGeneration += 1;
+    clearConnectionTimers();
+    state.networkActive = false;
+    state.sleepReason = reason || "manual";
+    updateConnectionUi();
+  }
+  async function startRoomConnection({ pushLocal = false, message = "" } = {}) {
+    if (!state.roomId || state.manualSleep || state.idleSuspended || document.hidden) {
+      updateConnectionUi();
+      return;
+    }
+    clearConnectionTimers();
+    const generation = ++state.connectionGeneration;
+    state.networkActive = true;
+    state.sleepReason = "";
+    state.lastActivityAt = Date.now();
+    updateConnectionUi();
+    if (message) setStatus(message);
+    if (pushLocal && els.video.src) {
+      await syncPlayback(true);
+      await syncContextIfNeeded();
+    }
+    if (generation !== state.connectionGeneration || !state.networkActive || document.hidden) return;
+    await fetchRoom();
+    if (generation !== state.connectionGeneration || !state.networkActive || document.hidden) return;
+    state.polling = setInterval(fetchRoom, POLL_INTERVAL_MS);
+    state.contextTimer = setInterval(syncContextIfNeeded, CONTEXT_INTERVAL_MS);
+    state.idleTimer = setInterval(checkIdleConnection, IDLE_CHECK_INTERVAL_MS);
+  }
+  function checkIdleConnection() {
+    if (!state.networkActive) return;
+    if (els.video.src && !els.video.paused) {
+      state.lastActivityAt = Date.now();
+      return;
+    }
+    if (Date.now() - state.lastActivityAt < IDLE_DISCONNECT_MS) return;
+    state.idleSuspended = true;
+    stopRoomConnection("idle");
+    setStatus("已闲置 10 分钟，映屿停止联网。点「唤醒房间」即可恢复；Render 随后会自动休眠。");
+  }
+  function markActivity(event) {
+    state.lastActivityAt = Date.now();
+    if (!state.idleSuspended || state.manualSleep || document.hidden) return;
+    if (event?.target === els.sleepServerBtn) return;
+    state.idleSuspended = false;
+    startRoomConnection({ pushLocal: true, message: "检测到操作，房间连接已恢复。" });
+  }
+  function wakeForRoomAction() {
+    if (!state.roomId) return false;
+    state.manualSleep = false;
+    state.idleSuspended = false;
+    saveSettings({ silent: true });
+    if (!state.networkActive && !document.hidden) startRoomConnection({ pushLocal: true });
+    return true;
+  }
+  function toggleServerSleep() {
+    if (!state.roomId) return setStatus("当前没有活动房间，不会产生持续轮询。");
+    if (state.networkActive) {
+      state.manualSleep = true;
+      state.idleSuspended = false;
+      saveSettings({ silent: true });
+      stopRoomConnection("manual");
+      setStatus("已停止映屿的所有持续请求。所有页面都断开后，Render 约 15 分钟后自动休眠。");
+      return;
+    }
+    state.manualSleep = false;
+    state.idleSuspended = false;
+    state.lastActivityAt = Date.now();
+    saveSettings({ silent: true });
+    startRoomConnection({ pushLocal: true, message: "房间已唤醒，正在恢复本机播放进度。" });
+  }
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      stopRoomConnection("hidden");
+      return;
+    }
+    if (!state.roomId || state.manualSleep) {
+      updateConnectionUi();
+      return;
+    }
+    state.idleSuspended = false;
+    startRoomConnection({ pushLocal: true, message: "页面已回到前台，房间连接恢复。" });
   }
 
   async function checkHealth() {
@@ -97,6 +225,8 @@
 
   async function createRoom() {
     saveSettings();
+    state.manualSleep = false;
+    state.idleSuspended = false;
     try {
       const title = els.videoFile.files[0]?.name?.replace(/\.[^.]+$/, "") || "映屿观影房间";
       const data = await request("/api/rooms", {
@@ -109,6 +239,8 @@
   }
   async function joinRoom() {
     saveSettings();
+    state.manualSleep = false;
+    state.idleSuspended = false;
     const id = roomCode(els.joinRoomInput.value);
     if (!id) return setStatus("先输入房间号。");
     try {
@@ -120,17 +252,15 @@
   function enterRoom(id, room) {
     state.roomId = roomCode(id);
     state.room = room || state.room;
+    state.manualSleep = false;
+    state.idleSuspended = false;
     els.joinRoomInput.value = state.roomId;
-    saveSettings();
+    saveSettings({ silent: true });
     renderRoom(room);
-    if (state.polling) clearInterval(state.polling);
-    state.polling = setInterval(fetchRoom, 2500);
-    if (state.contextTimer) clearInterval(state.contextTimer);
-    state.contextTimer = setInterval(syncContextIfNeeded, 1200);
-    fetchRoom();
+    startRoomConnection();
   }
   async function fetchRoom() {
-    if (!state.roomId) return;
+    if (!state.roomId || !state.networkActive || document.hidden) return;
     try {
       const data = await request(`/api/rooms/${state.roomId}`, { method: "GET" });
       state.room = data.room;
@@ -183,6 +313,7 @@
 
   async function sendMessage(danmaku) {
     if (!state.roomId) return setStatus("先创建或加入房间。");
+    wakeForRoomAction();
     const text = els.chatInput.value.trim();
     if (!text) return;
     els.chatInput.value = "";
@@ -193,6 +324,7 @@
   }
   async function addNote() {
     if (!state.roomId) return setStatus("先创建或加入房间。");
+    wakeForRoomAction();
     const text = els.noteInput.value.trim();
     if (!text) return;
     els.noteInput.value = "";
@@ -203,6 +335,7 @@
   }
   async function generateCard() {
     if (!state.roomId) return setStatus("先创建或加入房间。");
+    wakeForRoomAction();
     try {
       await request(`/api/rooms/${state.roomId}/card`, {
         method: "POST",
@@ -252,6 +385,7 @@
     if (!force && now - state.lastPlaybackSyncAt < 1500) return;
     state.lastPlaybackSyncAt = now;
     rememberHall(els.videoFile.files[0]?.name || state.room?.fileName || "本地影片", els.video.currentTime || 0);
+    if (!state.networkActive || document.hidden) return;
     try {
       await request(`/api/rooms/${state.roomId}/playback`, {
         method: "POST",
@@ -337,7 +471,7 @@
     }
     const text = currentSubtitle();
     els.subtitleOverlay.textContent = text;
-    if (!state.roomId) return;
+    if (!state.roomId || !state.networkActive || document.hidden) return;
     const now = Date.now();
     if (now - state.lastContextAt < 2500 && text === state.lastSubtitleText) return;
     state.lastContextAt = now;
@@ -358,6 +492,7 @@
   }
   async function captureFrame() {
     if (!state.roomId) return setStatus("先创建或加入房间。");
+    wakeForRoomAction();
     if (!els.video.src || !els.video.videoWidth) return setStatus("先导入并播放一帧影片，再截图。");
     try {
       const canvas = document.createElement("canvas");
@@ -401,11 +536,12 @@
     $("healthBtn").addEventListener("click", checkHealth);
     $("createRoomBtn").addEventListener("click", createRoom);
     $("joinRoomBtn").addEventListener("click", joinRoom);
+    els.sleepServerBtn.addEventListener("click", toggleServerSleep);
     $("sendChatBtn").addEventListener("click", () => sendMessage(false));
     $("sendDanmakuBtn").addEventListener("click", () => sendMessage(true));
     $("addNoteBtn").addEventListener("click", addNote);
     $("generateCardBtn").addEventListener("click", generateCard);
-    $("syncNowBtn").addEventListener("click", () => syncPlayback(true));
+    $("syncNowBtn").addEventListener("click", () => { wakeForRoomAction(); syncPlayback(true); });
     $("captureFrameBtn").addEventListener("click", captureFrame);
     $("toggleDanmakuBtn").addEventListener("click", () => {
       state.danmakuOn = !state.danmakuOn;
@@ -413,14 +549,24 @@
     });
     els.videoFile.addEventListener("change", e => handleVideoFile(e.target.files[0]));
     els.subtitleFile.addEventListener("change", e => handleSubtitleFile(e.target.files[0]));
-    els.video.addEventListener("play", () => { if (!state.applyingRemote) syncPlayback(true); });
-    els.video.addEventListener("pause", () => { if (!state.applyingRemote) syncPlayback(true); });
-    els.video.addEventListener("seeked", () => { if (!state.applyingRemote) syncPlayback(true); });
+    els.video.addEventListener("play", () => { markActivity(); if (!state.applyingRemote) { wakeForRoomAction(); syncPlayback(true); } });
+    els.video.addEventListener("pause", () => { markActivity(); if (!state.applyingRemote) syncPlayback(true); });
+    els.video.addEventListener("seeked", () => { markActivity(); if (!state.applyingRemote) { wakeForRoomAction(); syncPlayback(true); } });
     els.video.addEventListener("timeupdate", () => { syncContextIfNeeded(); syncPlayback(false); });
     $("clearHallBtn").addEventListener("click", () => { state.hall = []; localStorage.removeItem("cineisle.hall"); renderHall(); });
     $("installTipBtn").addEventListener("click", () => els.installDialog.showModal());
     $("closeInstallDialog").addEventListener("click", () => els.installDialog.close());
     els.chatInput.addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(false); });
+    document.addEventListener("pointerdown", markActivity, { passive: true });
+    document.addEventListener("keydown", markActivity);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", () => stopRoomConnection("pagehide"));
+    window.addEventListener("pageshow", () => {
+      if (!document.hidden && state.roomId && !state.manualSleep && !state.networkActive) {
+        state.idleSuspended = false;
+        startRoomConnection({ pushLocal: true });
+      }
+    });
   }
 
   if ("serviceWorker" in navigator) {
@@ -429,5 +575,14 @@
   bindTabs();
   bindEvents();
   loadSettings();
-  if (state.roomId) enterRoom(state.roomId, null);
+  updateConnectionUi();
+  if (state.roomId) {
+    if (state.manualSleep) {
+      state.sleepReason = "manual";
+      updateConnectionUi();
+      setStatus("映屿保持休眠，没有持续连接。点「唤醒房间」后再继续观影。");
+    } else {
+      enterRoom(state.roomId, null);
+    }
+  }
 })();

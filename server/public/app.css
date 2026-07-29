@@ -21,6 +21,7 @@ button, .file-button { border: 0; border-radius: 999px; padding: 12px 16px; back
 button:hover, .file-button:hover { transform: translateY(-1px); background: rgba(255,255,255,.18); }
 button.primary { background: linear-gradient(135deg, var(--accent), #6fd6ff); color: #11172b; font-weight: 800; }
 button.ghost { background: transparent; border: 1px solid var(--line); }
+button.sleeping { border-color: rgba(242,198,222,.6); background: rgba(242,198,222,.12); color: var(--accent2); }
 button.full { width: 100%; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 input, textarea, select { width: 100%; border: 1px solid var(--line); border-radius: 18px; padding: 12px 13px; background: rgba(255,255,255,.08); color: var(--ink); outline: none; }

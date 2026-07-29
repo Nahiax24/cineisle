@@ -106,8 +106,8 @@ function auth(req,res,next){
 }
 
 app.get("/", (req,res)=>res.sendFile(__dirname + "/public/index.html"));
-app.get("/server-info", (req,res)=>res.json({ok:true, app:"CineIsle Server", version:"0.4.1-render-fix", rooms:rooms.size, tokenRequired:Boolean(TOKEN), mcp:"/mcp", health:"/api/health", time:now()}));
-app.get("/api/health",(req,res)=>res.json({ok:true, app:"CineIsle Server", version:"0.4.1-render-fix", rooms:rooms.size, tokenRequired:Boolean(TOKEN), time:now()}));
+app.get("/server-info", (req,res)=>res.json({ok:true, app:"CineIsle Server", version:"0.4.2-playback-guard", rooms:rooms.size, tokenRequired:Boolean(TOKEN), mcp:"/mcp", health:"/api/health", time:now()}));
+app.get("/api/health",(req,res)=>res.json({ok:true, app:"CineIsle Server", version:"0.4.2-playback-guard", rooms:rooms.size, tokenRequired:Boolean(TOKEN), time:now()}));
 
 app.post("/api/rooms",(req,res)=>{
   const r = ensure(code());
@@ -177,13 +177,12 @@ app.post("/api/rooms/:id/card", auth, (req,res)=>{
 
 app.post("/api/rooms/:id/context", auth, (req,res)=>{
   const r = ensure(req.params.id);
-  applyAssistantName(r, req.body);
   const ctx = r.context || (r.context = {});
-  if (typeof req.body.currentTime === "number") r.currentTime = Math.max(0, req.body.currentTime);
-  if (typeof req.body.duration === "number") r.duration = Math.max(0, req.body.duration);
-  if (typeof req.body.paused === "boolean") r.paused = req.body.paused;
-  if (req.body.title) r.title = String(req.body.title).slice(0,100);
-  if (req.body.fileName) r.fileName = String(req.body.fileName).slice(0,180);
+  const hasLocalMedia = Number(req.body.duration) > 0 || Boolean(String(req.body.fileName || "").trim());
+  if (!hasLocalMedia) {
+    return res.json({ok:true, ignored:true, reason:"LOCAL_MEDIA_REQUIRED", context: compactContext(ctx, false), room: pub(r)});
+  }
+  applyAssistantName(r, req.body);
   ctx.recentSubtitles = Array.isArray(req.body.recentSubtitles)
     ? req.body.recentSubtitles.map(x => String(x || "").slice(0,500)).filter(Boolean).slice(-8)
     : [];
@@ -195,7 +194,6 @@ app.post("/api/rooms/:id/context", auth, (req,res)=>{
   ctx.actor = String(req.body.actor || req.body.name || "观影人").slice(0,80);
   ctx.observedAt = req.body.observedAt || now();
   ctx.subtitleUpdatedAt = now();
-  r.lastActor = ctx.actor;
   r.updatedAt = now();
   res.json({ok:true, context: compactContext(ctx, false), room: pub(r)});
 });
@@ -569,7 +567,7 @@ function handleMcpMessage(req, msg) {
       capabilities: { tools: {} },
       serverInfo: {
         name: "映屿 CineIsle · Viewing Context",
-        version: "0.4.0-pwa"
+        version: "0.4.2-playback-guard"
       }
     });
   }

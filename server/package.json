@@ -1,10 +1,11 @@
 {
   "name": "cineisle-server",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node -e \"require('express'); require('cors'); console.log('CineIsle dependencies OK')\""
+    "check": "node -e \"require('express'); require('cors'); console.log('CineIsle dependencies OK')\"",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

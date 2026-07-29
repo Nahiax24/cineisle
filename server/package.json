@@ -1,6 +1,6 @@
 {
   "name": "cineisle-server",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

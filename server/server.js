@@ -106,8 +106,8 @@ function auth(req,res,next){
 }
 
 app.get("/", (req,res)=>res.sendFile(__dirname + "/public/index.html"));
-app.get("/server-info", (req,res)=>res.json({ok:true, app:"CineIsle Server", version:"0.4.2-playback-guard", rooms:rooms.size, tokenRequired:Boolean(TOKEN), mcp:"/mcp", health:"/api/health", time:now()}));
-app.get("/api/health",(req,res)=>res.json({ok:true, app:"CineIsle Server", version:"0.4.2-playback-guard", rooms:rooms.size, tokenRequired:Boolean(TOKEN), time:now()}));
+app.get("/server-info", (req,res)=>res.json({ok:true, app:"CineIsle Server", version:"0.4.3-sleep-guard", rooms:rooms.size, tokenRequired:Boolean(TOKEN), mcp:"/mcp", health:"/api/health", time:now()}));
+app.get("/api/health",(req,res)=>res.json({ok:true, app:"CineIsle Server", version:"0.4.3-sleep-guard", rooms:rooms.size, tokenRequired:Boolean(TOKEN), time:now()}));
 
 app.post("/api/rooms",(req,res)=>{
   const r = ensure(code());
@@ -567,7 +567,7 @@ function handleMcpMessage(req, msg) {
       capabilities: { tools: {} },
       serverInfo: {
         name: "映屿 CineIsle · Viewing Context",
-        version: "0.4.2-playback-guard"
+        version: "0.4.3-sleep-guard"
       }
     });
   }

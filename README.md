@@ -12,7 +12,12 @@
 
 公开版支持在设置里填写 **AI 名字**。填写后，App / PWA 内和 MCP 截图请求会同步这个名字，例如「给小G看一眼」「给林澈看一眼」。
 
-## 本次更新：v0.4.1 Render 部署修复 + PWA + Android APK
+## 本次更新：v0.4.3 Render 休眠保护 + PWA + Android APK
+
+- PWA 页面进入后台后会停止房间轮询与字幕上下文上传，回到前台时以本机进度恢复连接。
+- 视频暂停且页面闲置 10 分钟后会自动断开；再次操作或点击「唤醒房间」即可恢复。
+- 新增「让服务器休眠」按钮，主动停止持续请求并记住休眠状态，避免重新打开页面后自动唤醒房间。
+- Render Free Web Service 在所有 CineIsle 页面断开后可按平台规则进入空闲休眠。
 
 - 新增 **iOS Web/PWA 入口**：iPhone 用 Safari 打开后端地址，添加到主屏幕即可像 App 一样使用。
 - Android 仍保留原生 App 与 GitHub Actions 自动打包 APK。

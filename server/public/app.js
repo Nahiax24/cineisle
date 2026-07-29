@@ -275,6 +275,7 @@
     els.roomBadge.textContent = `ROOM ${room.id || state.roomId}`;
     renderMessages(room.messages || []);
     renderNotes(room.notes || []);
+    renderViewingContext(room);
     renderCard(room.card);
   }
   function renderMessages(messages) {
@@ -302,6 +303,31 @@
       els.noteLog.appendChild(item);
     });
     els.noteLog.scrollTop = els.noteLog.scrollHeight;
+  }
+  function renderViewingContext(room) {
+    const context = room?.context || {};
+    const current = String(context.currentSubtitle || "").trim();
+    const recent = Array.isArray(context.recentSubtitles)
+      ? context.recentSubtitles.map(line => String(line || "").trim()).filter(Boolean).slice(-8)
+      : [];
+    const lines = recent.filter((line, index) => index === 0 || line !== recent[index - 1]);
+    if (current && lines[lines.length - 1] !== current) lines.push(current);
+
+    els.contextState.dataset.remoteSubtitle = current;
+    els.contextState.dataset.subtitleUpdatedAt = String(context.subtitleUpdatedAt || "");
+    if (!lines.length) {
+      if (!state.subtitles.length) els.contextState.textContent = "房间暂时没有同步字幕。";
+      return;
+    }
+
+    const playback = room.paused ? "已暂停" : "播放中";
+    const history = lines.slice(0, -1).map(line => `前文：${line}`);
+    const latest = `当前：${lines[lines.length - 1]}`;
+    els.contextState.textContent = [
+      `AI 字幕视图 · ${timeLabel(room.currentTime)} · ${playback}`,
+      ...history,
+      latest
+    ].join("\n");
   }
   function renderCard(card) {
     if (!card) { els.cardPreview.textContent = "还没有卡片。"; return; }

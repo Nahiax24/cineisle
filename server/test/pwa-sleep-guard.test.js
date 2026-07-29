@@ -120,9 +120,14 @@ test("PWA stops all recurring requests while hidden, idle, or manually asleep", 
       title: "Gotham S01E01",
       messages: [],
       notes: [],
-      currentTime: 0,
-      paused: true,
-      lastActor: "Nahia"
+      currentTime: 613,
+      paused: false,
+      lastActor: "Nahia",
+      context: {
+        currentSubtitle: "当前台词",
+        recentSubtitles: ["前一句", "再前一句", "当前台词"],
+        subtitleUpdatedAt: "2026-07-29T20:00:00.000Z"
+      }
     };
     return {
       ok: true,
@@ -150,8 +155,12 @@ test("PWA stops all recurring requests while hidden, idle, or manually asleep", 
 
   const sleepButton = elements.get("sleepServerBtn");
   const video = elements.get("video");
+  const contextState = elements.get("contextState");
   assert.deepEqual([...intervals.values()].map(x => x.milliseconds).sort((a, b) => a - b), [1200, 2500, 15000]);
   assert.equal(sleepButton.textContent, "让服务器休眠");
+  assert.equal(contextState.textContent, "AI 字幕视图 · 10:13 · 播放中\n前文：前一句\n前文：再前一句\n当前：当前台词");
+  assert.equal(contextState.dataset.remoteSubtitle, "当前台词");
+  assert.equal(contextState.dataset.subtitleUpdatedAt, "2026-07-29T20:00:00.000Z");
 
   document.hidden = true;
   documentEvents.emit("visibilitychange");

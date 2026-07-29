@@ -10,7 +10,7 @@
   <title>映屿 CineIsle</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=0.4.3">
 </head>
 <body>
   <div class="app-shell">
@@ -54,8 +54,9 @@
           <button id="createRoomBtn" class="primary">创建房间</button>
           <input id="joinRoomInput" class="room-input" placeholder="输入房间号">
           <button id="joinRoomBtn">加入房间</button>
+          <button id="sleepServerBtn" class="ghost" disabled>暂无活动房间</button>
         </div>
-        <p id="statusLine" class="status-line">准备就绪。iOS 用户可直接使用网页版本，添加到主屏幕后更像 App。</p>
+        <p id="statusLine" class="status-line">准备就绪。页面进入后台会停止联网；暂停播放并闲置 10 分钟后也会自动断开。</p>
       </section>
 
       <section class="layout">
@@ -143,6 +144,6 @@
     <button id="closeInstallDialog" class="primary full">知道啦</button>
   </dialog>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=0.4.3"></script>
 </body>
 </html>
